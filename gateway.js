@@ -1,5 +1,9 @@
 var noble = require('noble');
 var osc = require('node-osc');
+const Rx = require('rx');
+const $ = Rx.Observable;
+const WebSocket = require('ws');
+
 
 var SERVICE_ID = '1811';
 var CHARACTERISTICS_ID = '2a56';
@@ -10,8 +14,33 @@ var oscClient = null;
 
 var re = new RegExp(/hello wrlds/ig);
 
+let wss;
+const outMsg$ = new Rx.Subject()
+
 if (oscPort) {
-    oscClient = new osc.Client('127.0.0.1', oscPort);
+    // oscClient = new osc.Client('127.0.0.1', oscPort);
+
+   wss = new WebSocket.Server({
+     port: oscPort
+   })
+
+   outMsg$.subscribe(msg => {
+     console.log(msg);
+     wss.clients.forEach(function each(client) {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify(msg));
+        }
+      })
+   });
+
+
+
+   wss.on('connection', function connection(ws) {
+     console.log('client connected')
+    // ws.on('message', function incoming(message) {
+    //   console.log('received: %s', message);
+    // });
+  });
 }
 
 noble.on('stateChange', function(state) {
@@ -70,9 +99,14 @@ function explore(peripheral) {
                             acc /= 32768;
                             console.log('Bounce! ' + acc + '%');
 
-                            if (oscClient) {
+                            if (wss) {
                                 console.log('Sending OSC...');
-                                oscClient.send('/wrlds/' + peripheral.id + '/bounce', acc, function () {});
+                                outMsg$.onNext([{
+                                  type: 'wrldsBounce',
+                                  id: peripheral.id,
+                                  acc
+                                }])
+                                // oscClient.send('/wrlds/' + peripheral.id + '/bounce', acc, function () {});
                             }
                         });
                     });
