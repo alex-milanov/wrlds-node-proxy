@@ -7,6 +7,7 @@ const WebSocket = require('ws');
 
 var SERVICE_ID = '1811';
 var CHARACTERISTICS_ID = '2a56';
+var CHARACTERISTICS2_ID = '2a57';
 
 var peripheralIdOrAddress = process.argv[2] && process.argv[2].toLowerCase();
 var oscPort = process.argv[3] && ~~process.argv[3];
@@ -46,7 +47,7 @@ if (oscPort) {
 noble.on('stateChange', function(state) {
     if (state === 'poweredOn') {
         console.log('Scanning for BLE devices...');
-        noble.startScanning([SERVICE_ID], false);
+        noble.startScanning([], false);
     }
     else {
         noble.stopScanning();
@@ -76,39 +77,61 @@ function explore(peripheral) {
                     characteristics.forEach(c => {
                         console.log('Characteristic ' + c.uuid);
 
-                        if (c.uuid != CHARACTERISTICS_ID) {
-                            return;
+                        if (c.uuid === CHARACTERISTICS_ID) {
+
+                          console.log('Found correct characteristic.');
+
+                          c.subscribe(function(error) {
+                              console.log('Subscribed.');
+                          });
+
+                          c.on('read', function(data, isNotification) {
+                              console.log('Got bytes', data);
+                              var acc = 0.0;
+                              var buffer = new Buffer(data);
+                              for(var i=0; i<10; i++) {
+                                  var x = buffer.readInt16LE(i * 2)
+                                  acc += Math.abs(x);
+                              }
+                              acc /= 10;
+                              acc *= 100;
+                              acc /= 32768;
+                              console.log('Bounce! ' + acc + '%');
+
+                              if (wss) {
+                                  console.log('Sending OSC... Bounce');
+                                  outMsg$.onNext({
+                                    type: 'wrldsBounce',
+                                    id: peripheral.id,
+                                    acc
+                                  })
+                                  // oscClient.send('/wrlds/' + peripheral.id + '/bounce', acc, function () {});
+                              }
+                          });
                         }
-
-                        console.log('Found correct characteristic.');
-
-                        c.subscribe(function(error) {
-                            console.log('Subscribed.');
-                        });
-
-                        c.on('read', function(data, isNotification) {
-                            console.log('Got bytes', data);
-                            var acc = 0.0;
-                            var buffer = new Buffer(data);
-                            for(var i=0; i<10; i++) {
-                                var x = buffer.readInt16LE(i * 2)
-                                acc += Math.abs(x);
-                            }
-                            acc /= 10;
-                            acc *= 100;
-                            acc /= 32768;
-                            console.log('Bounce! ' + acc + '%');
-
-                            if (wss) {
-                                console.log('Sending OSC...');
-                                outMsg$.onNext([{
-                                  type: 'wrldsBounce',
-                                  id: peripheral.id,
-                                  acc
-                                }])
-                                // oscClient.send('/wrlds/' + peripheral.id + '/bounce', acc, function () {});
-                            }
-                        });
+                        if (c.uuid == CHARACTERISTICS2_ID) {
+                            console.log('Found correct characteristic.');
+                             c.subscribe(function(error) {
+                                console.log('Subscribed.');
+                            });
+                             c.on('read', function(data, isNotification) {
+                                console.log('Got bytes', data);
+                                var buffer = new Buffer(data);
+                                var x = buffer.readInt16LE(0)
+                                var y = buffer.readInt16LE(2)
+                                var z = buffer.readInt16LE(4)
+                                console.log('buffer',x,y,z);
+                                if (wss) {
+                                    console.log('Sending OSC... Rotate');
+                                    outMsg$.onNext({
+                                      type: 'wrldsRotate',
+                                      id: peripheral.id,
+                                      rotation: [x, y, z]
+                                    })
+                                    // oscClient.send('/wrlds/' + peripheral.id + '/bounce', acc, function () {});
+                                }
+                            });
+                        }
                     });
                 });
             });
